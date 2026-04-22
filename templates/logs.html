@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Logs{% endblock %}
+
+{% block head %}
+<style>
+  .data-table { width:100%; border-collapse:collapse; font-size:0.875rem; }
+  .data-table th { padding:0.625rem 1rem; text-align:left; font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.07em; color:#64748b; border-bottom:2px solid #f1f5f9; background:#f8fafc; }
+  .data-table td { padding:0.75rem 1rem; border-bottom:1px solid #f8fafc; color:#334155; }
+  .data-table tr:last-child td { border-bottom:none; }
+  .data-table tr:hover td { background:#f8faff; }
+  .filter-btn { padding:0.375rem 0.875rem; border-radius:0.5rem; font-size:0.8rem; font-weight:500; border:1px solid #e2e8f0; background:white; color:#64748b; cursor:pointer; transition:all 0.15s; }
+  .filter-btn:hover { border-color:#93c5fd; color:#2563eb; background:#eff6ff; }
+  .filter-btn.active { border-color:#2563eb; background:#dbeafe; color:#1d4ed8; font-weight:600; }
+  .page-btn { padding:0.375rem 0.75rem; border-radius:0.5rem; font-size:0.8rem; border:1px solid #e2e8f0; background:white; color:#64748b; cursor:pointer; transition:all 0.15s; }
+  .page-btn:hover:not(:disabled) { border-color:#93c5fd; color:#2563eb; }
+  .page-btn:disabled { opacity:0.4; cursor:not-allowed; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div style="display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; margin-bottom:1.5rem;">
+  <div>
+    <h1 style="font-size:1.5rem; font-weight:700; color:#0f172a; margin:0 0 0.25rem;">Sensor Logs</h1>
+    <p style="font-size:0.875rem; color:#64748b; margin:0;">Full history of turbidity readings</p>
+  </div>
+  <button onclick="exportCSV()"
+    style="display:flex; align-items:center; gap:0.5rem; padding:0.5rem 1rem; border-radius:0.5rem; background:#2563eb; color:white; font-size:0.875rem; font-weight:500; border:none; cursor:pointer; transition:background 0.15s;"
+    onmouseover="this.style.background='#1d4ed8'" onmouseout="this.style.background='#2563eb'">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 4v11"/>
+    </svg>
+    Export CSV
+  </button>
+</div>
+
+<!-- Stats row -->
+<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:0.75rem; margin-bottom:1rem;">
+  <div class="card" style="padding:1rem 1.25rem; text-align:center;">
+    <div style="font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.07em; color:#94a3b8; margin-bottom:0.25rem;">Total</div>
+    <div id="stat-total" style="font-size:1.5rem; font-weight:700; font-family:'JetBrains Mono',monospace; color:#0f172a;">–</div>
+  </div>
+  <div class="card" style="padding:1rem 1.25rem; text-align:center;">
+    <div style="font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.07em; color:#16a34a; margin-bottom:0.25rem;">Clean</div>
+    <div id="stat-clean" style="font-size:1.5rem; font-weight:700; font-family:'JetBrains Mono',monospace; color:#15803d;">–</div>
+  </div>
+  <div class="card" style="padding:1rem 1.25rem; text-align:center;">
+    <div style="font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.07em; color:#ca8a04; margin-bottom:0.25rem;">Turbid</div>
+    <div id="stat-turbid" style="font-size:1.5rem; font-weight:700; font-family:'JetBrains Mono',monospace; color:#a16207;">–</div>
+  </div>
+  <div class="card" style="padding:1rem 1.25rem; text-align:center;">
+    <div style="font-size:0.7rem; font-weight:600; text-transform:uppercase; letter-spacing:0.07em; color:#dc2626; margin-bottom:0.25rem;">Dirty</div>
+    <div id="stat-dirty" style="font-size:1.5rem; font-weight:700; font-family:'JetBrains Mono',monospace; color:#b91c1c;">–</div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card" style="padding:0.875rem 1.25rem; margin-bottom:1rem; display:flex; flex-wrap:wrap; align-items:center; gap:0.5rem;">
+  <span style="font-size:0.75rem; font-weight:600; color:#94a3b8; text-transform:uppercase; letter-spacing:0.07em; margin-right:0.25rem;">Filter:</span>
+  <button class="filter-btn active" data-filter="" onclick="setFilter(this,'')">All</button>
+  <button class="filter-btn" data-filter="Clean"  onclick="setFilter(this,'Clean')">Clean</button>
+  <button class="filter-btn" data-filter="Turbid" onclick="setFilter(this,'Turbid')">Turbid</button>
+  <button class="filter-btn" data-filter="Dirty"  onclick="setFilter(this,'Dirty')">Dirty</button>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:0.5rem;">
+    <label style="font-size:0.75rem; color:#64748b;">Per page:</label>
+    <select id="per-page-sel" onchange="reloadLogs()"
+      style="border:1px solid #e2e8f0; border-radius:0.375rem; padding:0.3rem 0.5rem; font-size:0.8rem; color:#374151; background:white; cursor:pointer;">
+      <option value="25">25</option>
+      <option value="50" selected>50</option>
+      <option value="100">100</option>
+    </select>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="card" style="overflow:hidden;">
+  <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Timestamp</th>
+          <th style="text-align:right;">NTU</th>
+          <th style="text-align:right;">Voltage (V)</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="log-tbody">
+        <tr><td colspan="5" style="text-align:center;padding:3rem;color:#94a3b8;">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <!-- Pagination -->
+  <div style="padding:0.875rem 1.25rem; border-top:1px solid #f1f5f9; display:flex; align-items:center; justify-content:space-between;">
+    <span id="page-info" style="font-size:0.75rem; color:#94a3b8; font-family:'JetBrains Mono',monospace;">–</span>
+    <div style="display:flex; gap:0.5rem;">
+      <button id="btn-prev" class="page-btn" onclick="changePage(-1)">← Prev</button>
+      <button id="btn-next" class="page-btn" onclick="changePage(1)">Next →</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage   = 1;
+let currentFilter = '';
+let totalCount    = 0;
+let allData       = [];
+
+function setFilter(btn, val) {
+  currentFilter = val;
+  currentPage   = 1;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  reloadLogs();
+}
+
+function changePage(dir) {
+  const perPage = parseInt(document.getElementById('per-page-sel').value);
+  const maxPage = Math.ceil(totalCount / perPage) || 1;
+  currentPage = Math.max(1, Math.min(currentPage + dir, maxPage));
+  loadLogs();
+}
+
+function reloadLogs() { currentPage = 1; loadLogs(); }
+
+async function loadLogs() {
+  const perPage = parseInt(document.getElementById('per-page-sel').value);
+  const qs = new URLSearchParams({ page: currentPage, per_page: perPage, status: currentFilter });
+  const res = await fetch('/api/logs?' + qs).then(r => r.json());
+  totalCount = res.count || 0;
+  allData    = res.data  || [];
+  renderTable(allData, perPage);
+  renderStats();
+}
+
+function renderTable(rows, perPage) {
+  const tbody = document.getElementById('log-tbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:3rem;color:#94a3b8;">No records found.</td></tr>';
+  } else {
+    tbody.innerHTML = rows.map((row, i) => {
+      const num = (currentPage - 1) * perPage + i + 1;
+      return `<tr>
+        <td style="color:#94a3b8; font-family:'JetBrains Mono',monospace; font-size:0.75rem;">${num}</td>
+        <td style="font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#64748b;">${fmtTime(row.created_at)}</td>
+        <td style="text-align:right; font-family:'JetBrains Mono',monospace; font-weight:600; color:#0f172a;">${parseFloat(row.ntu).toFixed(2)}</td>
+        <td style="text-align:right; font-family:'JetBrains Mono',monospace; color:#64748b;">${parseFloat(row.voltage).toFixed(4)}</td>
+        <td><span class="${statusBadge(row.status)}">${row.status}</span></td>
+      </tr>`;
+    }).join('');
+  }
+  const maxPage = Math.ceil(totalCount / perPage) || 1;
+  document.getElementById('page-info').textContent =
+    `Page ${currentPage} of ${maxPage} · ${totalCount.toLocaleString()} total`;
+  document.getElementById('btn-prev').disabled = currentPage <= 1;
+  document.getElementById('btn-next').disabled = currentPage >= maxPage;
+}
+
+function renderStats() {
+  document.getElementById('stat-total').textContent = totalCount.toLocaleString();
+  const counts = { Clean:0, Turbid:0, Dirty:0 };
+  allData.forEach(r => counts[r.status] = (counts[r.status]||0)+1);
+  document.getElementById('stat-clean').textContent  = counts.Clean;
+  document.getElementById('stat-turbid').textContent = counts.Turbid;
+  document.getElementById('stat-dirty').textContent  = counts.Dirty;
+}
+
+function exportCSV() {
+  const header = 'timestamp,ntu,voltage,status\n';
+  const body   = allData.map(r => `${r.created_at},${r.ntu},${r.voltage},${r.status}`).join('\n');
+  const blob   = new Blob([header + body], { type: 'text/csv' });
+  const a      = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: `aquasense_logs_${new Date().toISOString().slice(0,10)}.csv`
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+loadLogs();
+setInterval(loadLogs, 30000);
+</script>
+{% endblock %}

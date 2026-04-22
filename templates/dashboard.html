@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block head %}
+<style>
+  /* Gauge SVG */
+  #gauge-track { stroke: #e2e8f0; }
+  #gauge-fill  { transition: stroke-dashoffset 1s ease, stroke 0.5s ease; }
+
+  /* Big status display */
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 1.25rem;
+    border-radius: 9999px;
+    font-size: 1rem; font-weight: 700;
+    letter-spacing: 0.01em;
+    transition: all 0.4s ease;
+  }
+  .status-clean  { background:#dcfce7; color:#15803d; }
+  .status-turbid { background:#fef9c3; color:#a16207; }
+  .status-dirty  { background:#fee2e2; color:#b91c1c; }
+  .status-unknown{ background:#f1f5f9; color:#64748b; }
+
+  /* Stat mini-cards */
+  .stat-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.625rem;
+    padding: 1rem 1.25rem;
+  }
+  .stat-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #94a3b8; margin-bottom: 0.25rem; }
+  .stat-value { font-size: 1.25rem; font-weight: 700; color: #0f172a; font-family: 'JetBrains Mono', monospace; }
+
+  /* Table */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+  .data-table th { padding: 0.625rem 1rem; text-align: left; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: #64748b; border-bottom: 1px solid #f1f5f9; background: #f8fafc; }
+  .data-table td { padding: 0.75rem 1rem; border-bottom: 1px solid #f8fafc; color: #334155; }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: #f8faff; }
+
+  /* Quality bar track */
+  .quality-track { height: 8px; border-radius: 9999px; background: linear-gradient(90deg,#dcfce7 0%,#fef9c3 40%,#fee2e2 100%); position:relative; overflow:visible; }
+  .quality-needle { position:absolute; top:-4px; width:3px; height:16px; background:#1e293b; border-radius:9999px; transform:translateX(-50%); transition: left 1s ease; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Page header -->
+<div style="margin-bottom:1.5rem; display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
+  <div>
+    <h1 style="font-size:1.5rem; font-weight:700; color:#0f172a; margin:0 0 0.25rem;">Water Quality Dashboard</h1>
+    <p style="font-size:0.875rem; color:#64748b; margin:0;">Real-time turbidity monitoring · auto-refreshes every 5 s</p>
+  </div>
+  <span id="last-updated" style="font-size:0.75rem; color:#94a3b8; font-family:'JetBrains Mono',monospace;">–</span>
+</div>
+
+<!-- ── Row 1: Status hero + stats ─────────────────────────────────────────── -->
+<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; margin-bottom:1rem;">
+
+  <!-- Big status card -->
+  <div class="card" style="padding:1.5rem; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0.75rem; grid-column: span 1;">
+    <!-- SVG gauge -->
+    <div style="position:relative; width:140px; height:140px; flex-shrink:0;">
+      <svg viewBox="0 0 100 100" width="140" height="140" style="transform:rotate(-90deg)">
+        <circle id="gauge-track" cx="50" cy="50" r="42" fill="none" stroke-width="8" stroke-linecap="round"
+                stroke-dasharray="220" stroke-dashoffset="0"/>
+        <circle id="gauge-fill"  cx="50" cy="50" r="42" fill="none" stroke-width="8" stroke-linecap="round"
+                stroke="#3b82f6" stroke-dasharray="220" stroke-dashoffset="220"/>
+      </svg>
+      <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+        <div id="ntu-value" style="font-family:'JetBrains Mono',monospace; font-size:1.6rem; font-weight:700; color:#0f172a; line-height:1;">–</div>
+        <div style="font-size:0.65rem; font-weight:600; text-transform:uppercase; letter-spacing:0.1em; color:#94a3b8; margin-top:2px;">NTU</div>
+      </div>
+    </div>
+    <div id="status-pill" class="status-pill status-unknown">● Unknown</div>
+  </div>
+
+  <!-- Voltage -->
+  <div class="card" style="padding:1.5rem; display:flex; flex-direction:column; justify-content:space-between;">
+    <div class="stat-label">Voltage</div>
+    <div id="voltage-val" class="stat-value" style="font-size:1.75rem;">– V</div>
+    <div style="margin-top:0.75rem;">
+      <div class="stat-label" style="margin-bottom:0.375rem;">Sensor Output Range</div>
+      <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:#94a3b8; font-family:'JetBrains Mono',monospace; margin-bottom:0.375rem;">
+        <span>0.8 V (dirty)</span><span>4.2 V (clean)</span>
+      </div>
+      <div style="height:6px; border-radius:9999px; background:linear-gradient(90deg,#fee2e2,#fef9c3,#dcfce7); position:relative;">
+        <div id="volt-needle" style="position:absolute; top:-3px; width:3px; height:12px; background:#1e293b; border-radius:9999px; transform:translateX(-50%); left:50%; transition:left 1s ease;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quality meter -->
+  <div class="card" style="padding:1.5rem; display:flex; flex-direction:column; justify-content:space-between;">
+    <div class="stat-label">Turbidity Level</div>
+    <div id="ntu-big" style="font-family:'JetBrains Mono',monospace; font-size:1.75rem; font-weight:700; color:#0f172a;">– NTU</div>
+    <div style="margin-top:0.75rem;">
+      <div style="display:flex; justify-content:space-between; font-size:0.7rem; color:#94a3b8; font-family:'JetBrains Mono',monospace; margin-bottom:0.375rem;">
+        <span>0</span><span id="thr-clean-label">300</span><span id="thr-dirty-label">700</span><span>1000</span>
+      </div>
+      <div class="quality-track">
+        <div id="quality-needle" class="quality-needle" style="left:0%"></div>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:0.65rem; margin-top:0.5rem;">
+        <span style="color:#15803d; font-weight:600;">Clean</span>
+        <span style="color:#a16207; font-weight:600;">Turbid</span>
+        <span style="color:#b91c1c; font-weight:600;">Dirty</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Row 2: Chart + donut ──────────────────────────────────────────────── -->
+<div style="display:grid; grid-template-columns:2fr 1fr; gap:1rem; margin-bottom:1rem;">
+
+  <!-- Trend chart -->
+  <div class="card" style="padding:1.5rem;">
+    <div style="font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:0.07em; color:#64748b; margin-bottom:1rem;">NTU Trend · Last 60 Readings</div>
+    <canvas id="ntu-chart" height="100"></canvas>
+  </div>
+
+  <!-- Status distribution -->
+  <div class="card" style="padding:1.5rem; display:flex; flex-direction:column; align-items:center;">
+    <div style="font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:0.07em; color:#64748b; margin-bottom:1rem; align-self:flex-start;">Distribution</div>
+    <div style="position:relative; width:120px; height:120px;">
+      <canvas id="donut-chart"></canvas>
+      <div id="donut-center" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none;">
+        <span style="font-size:1.25rem; font-weight:700; color:#0f172a; font-family:'JetBrains Mono',monospace;">0</span>
+        <span style="font-size:0.6rem; color:#94a3b8; font-weight:600; text-transform:uppercase;">total</span>
+      </div>
+    </div>
+    <div style="margin-top:1rem; width:100%; display:flex; flex-direction:column; gap:0.5rem; font-size:0.8rem;">
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <span style="display:flex;align-items:center;gap:0.375rem;"><span style="width:10px;height:10px;border-radius:50%;background:#16a34a;display:inline-block;"></span>Clean</span>
+        <span id="dist-clean" style="font-weight:600; font-family:'JetBrains Mono',monospace;">0</span>
+      </div>
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <span style="display:flex;align-items:center;gap:0.375rem;"><span style="width:10px;height:10px;border-radius:50%;background:#ca8a04;display:inline-block;"></span>Turbid</span>
+        <span id="dist-turbid" style="font-weight:600; font-family:'JetBrains Mono',monospace;">0</span>
+      </div>
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <span style="display:flex;align-items:center;gap:0.375rem;"><span style="width:10px;height:10px;border-radius:50%;background:#dc2626;display:inline-block;"></span>Dirty</span>
+        <span id="dist-dirty" style="font-weight:600; font-family:'JetBrains Mono',monospace;">0</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Row 3: Recent readings table ─────────────────────────────────────── -->
+<div class="card" style="overflow:hidden;">
+  <div style="padding:1rem 1.25rem; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; justify-content:space-between;">
+    <span style="font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:0.07em; color:#64748b;">Recent Readings</span>
+    <a href="/logs" style="font-size:0.8rem; color:#2563eb; font-weight:500; text-decoration:none;">View all →</a>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th style="text-align:right;">NTU</th>
+          <th style="text-align:right;">Voltage</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="recent-tbody">
+        <tr><td colspan="4" style="text-align:center; padding:2rem; color:#94a3b8;">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Charts ──────────────────────────────────────────────────────────────────
+const ntuChart = new Chart(document.getElementById('ntu-chart'), {
+  type: 'line',
+  data: { labels: [], datasets: [{
+    label: 'NTU', data: [],
+    borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.06)',
+    borderWidth: 2, tension: 0.4, fill: true,
+    pointRadius: 0, pointHoverRadius: 4,
+  }]},
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color:'#94a3b8', maxTicksLimit:8, font:{family:'JetBrains Mono',size:10} }, grid:{color:'#f1f5f9'} },
+      y: { ticks: { color:'#94a3b8', font:{family:'JetBrains Mono',size:10} }, grid:{color:'#f1f5f9'}, min:0, max:1000 },
+    },
+    animation: { duration: 300 },
+  }
+});
+
+const donutChart = new Chart(document.getElementById('donut-chart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Clean','Turbid','Dirty'],
+    datasets: [{ data:[1,0,0], backgroundColor:['#16a34a','#ca8a04','#dc2626'], borderWidth:0 }]
+  },
+  options: {
+    cutout:'70%', responsive:true,
+    plugins:{ legend:{display:false}, tooltip:{enabled:true} },
+    animation:{ duration:500 },
+  }
+});
+
+// ── Rolling state ────────────────────────────────────────────────────────────
+const MAX_PTS = 60;
+const hist = { labels:[], ntu:[], counts:{ Clean:0, Turbid:0, Dirty:0 } };
+let thresholds = { clean: 300, warning: 700 };
+
+// ── Gauge helpers ────────────────────────────────────────────────────────────
+function gaugeColor(status) {
+  return { Clean:'#16a34a', Turbid:'#ca8a04', Dirty:'#dc2626' }[status] || '#94a3b8';
+}
+function gaugeOffset(ntu) {
+  // circumference ≈ 2π×42 ≈ 263.9; we show 220 of it
+  const pct = Math.min(ntu / 1000, 1);
+  return 220 * (1 - pct);
+}
+
+// ── Update UI ────────────────────────────────────────────────────────────────
+async function fetchThresholds() {
+  const s = await fetch('/api/settings').then(r=>r.json());
+  thresholds.clean   = s.clean_threshold;
+  thresholds.warning = s.warning_threshold;
+  document.getElementById('thr-clean-label').textContent = s.clean_threshold;
+  document.getElementById('thr-dirty-label').textContent = s.warning_threshold;
+}
+
+async function tick() {
+  const r = await fetch('/api/reading').then(r=>r.json());
+
+  // Push history
+  hist.labels.push(new Date(r.timestamp).toLocaleTimeString());
+  hist.ntu.push(r.ntu);
+  hist.counts[r.status] = (hist.counts[r.status]||0) + 1;
+  if (hist.labels.length > MAX_PTS) { hist.labels.shift(); hist.ntu.shift(); }
+
+  // NTU displays
+  const ntuStr = r.ntu.toFixed(1);
+  document.getElementById('ntu-value').textContent = ntuStr;
+  document.getElementById('ntu-big').textContent   = ntuStr + ' NTU';
+  document.getElementById('voltage-val').textContent = r.voltage.toFixed(3) + ' V';
+  document.getElementById('last-updated').textContent = 'Updated ' + fmtTime(r.timestamp);
+
+  // Gauge arc
+  const fill = document.getElementById('gauge-fill');
+  fill.style.strokeDashoffset = gaugeOffset(r.ntu);
+  fill.style.stroke = gaugeColor(r.status);
+
+  // Status pill
+  const pill = document.getElementById('status-pill');
+  pill.className = 'status-pill status-' + r.status.toLowerCase();
+  pill.textContent = '● ' + r.status;
+
+  // Quality needle (0–1000 range)
+  const needlePct = (r.ntu / 1000) * 100;
+  document.getElementById('quality-needle').style.left = needlePct + '%';
+
+  // Voltage needle (0.8–4.2 range)
+  const voltPct = Math.min(Math.max((r.voltage - 0.8) / (4.2 - 0.8), 0), 1) * 100;
+  document.getElementById('volt-needle').style.left = voltPct + '%';
+
+  // Trend chart
+  ntuChart.data.labels = [...hist.labels];
+  ntuChart.data.datasets[0].data = [...hist.ntu];
+  ntuChart.update('none');
+
+  // Donut
+  const c = hist.counts;
+  donutChart.data.datasets[0].data = [c.Clean||0, c.Turbid||0, c.Dirty||0];
+  donutChart.update('none');
+  const total = (c.Clean||0)+(c.Turbid||0)+(c.Dirty||0);
+  document.getElementById('donut-center').querySelector('span').textContent = total;
+  document.getElementById('dist-clean').textContent  = c.Clean  || 0;
+  document.getElementById('dist-turbid').textContent = c.Turbid || 0;
+  document.getElementById('dist-dirty').textContent  = c.Dirty  || 0;
+
+  // Recent table
+  const logs = await fetch('/api/logs?per_page=8').then(r=>r.json());
+  const tbody = document.getElementById('recent-tbody');
+  if (logs.data && logs.data.length) {
+    tbody.innerHTML = logs.data.map(row => `
+      <tr>
+        <td style="font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:#64748b;">${fmtTime(row.created_at)}</td>
+        <td style="text-align:right; font-family:'JetBrains Mono',monospace; font-weight:600;">${parseFloat(row.ntu).toFixed(1)}</td>
+        <td style="text-align:right; font-family:'JetBrains Mono',monospace; color:#64748b;">${parseFloat(row.voltage).toFixed(3)}</td>
+        <td><span class="${statusBadge(row.status)}">${row.status}</span></td>
+      </tr>`).join('');
+  } else {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:2rem;color:#94a3b8;font-size:0.875rem;">No data yet — readings will appear here.</td></tr>';
+  }
+}
+
+fetchThresholds();
+tick();
+setInterval(tick, 5000);
+</script>
+{% endblock %}
