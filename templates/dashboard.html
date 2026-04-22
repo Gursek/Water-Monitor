@@ -50,7 +50,7 @@
 <div style="margin-bottom:1.5rem; display:flex; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;">
   <div>
     <h1 style="font-size:1.5rem; font-weight:700; color:#0f172a; margin:0 0 0.25rem;">Water Quality Dashboard</h1>
-    <p style="font-size:0.875rem; color:#64748b; margin:0;">Real-time turbidity monitoring · auto-refreshes every 5 s</p>
+    <p style="font-size:0.875rem; color:#64748b; margin:0;">Real-time turbidity monitoring · instant sensor refresh</p>
   </div>
   <span id="last-updated" style="font-size:0.75rem; color:#94a3b8; font-family:'JetBrains Mono',monospace;">–</span>
 </div>
@@ -232,7 +232,8 @@ async function fetchThresholds() {
 }
 
 async function tick() {
-  const r = await fetch('/api/reading').then(r=>r.json());
+  // Ask the server for a fresh hardware read. This also updates the LCD + logs.
+  const r = await fetch('/api/reading?fresh=1').then(r=>r.json());
 
   // Push history
   hist.labels.push(new Date(r.timestamp).toLocaleTimeString());
@@ -298,6 +299,7 @@ async function tick() {
 
 fetchThresholds();
 tick();
-setInterval(tick, 5000);
+// Keep UI feeling "instant". The server throttles real hardware reads.
+setInterval(tick, 1000);
 </script>
 {% endblock %}

@@ -42,6 +42,16 @@
     background: linear-gradient(90deg, #dcfce7 0%, #fef9c3 var(--c), #fef9c3 var(--c), #fee2e2 var(--w), #fee2e2 100%);
     position: relative; margin-top: 0.5rem;
   }
+
+  /* Health indicators */
+  .health-row { display:flex; align-items:center; justify-content:space-between; padding:0.75rem 0; border-bottom:1px solid #f8fafc; }
+  .health-row:last-child { border-bottom:none; padding-bottom:0; }
+  .health-name { font-size:0.875rem; font-weight:500; color:#374151; }
+  .health-sub  { font-size:0.75rem; color:#94a3b8; margin-top:0.125rem; font-family:'JetBrains Mono', monospace; }
+  .health-pill { display:inline-flex; align-items:center; gap:0.375rem; padding:0.25rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:700; letter-spacing:0.02em; }
+  .health-ok   { background:#dcfce7; color:#15803d; }
+  .health-bad  { background:#fee2e2; color:#b91c1c; }
+  .health-warn { background:#fef9c3; color:#a16207; }
 </style>
 {% endblock %}
 
@@ -118,6 +128,37 @@
 
   <!-- ── Right: Sampling + Hardware + Save ─────────────────────────────── -->
   <div style="display:flex; flex-direction:column; gap:1rem;">
+
+    <!-- System status -->
+    <div class="card" style="padding:1.5rem;">
+      <div class="section-title">System Status</div>
+      <div style="display:flex; flex-direction:column;">
+        <div class="health-row">
+          <div>
+            <div class="health-name">Turbidity Sensor (ADS1115)</div>
+            <div class="health-sub" id="h-sensor-sub">–</div>
+          </div>
+          <span id="h-sensor" class="health-pill health-warn">Checking…</span>
+        </div>
+        <div class="health-row">
+          <div>
+            <div class="health-name">LCD Display</div>
+            <div class="health-sub" id="h-lcd-sub">–</div>
+          </div>
+          <span id="h-lcd" class="health-pill health-warn">Checking…</span>
+        </div>
+        <div class="health-row">
+          <div>
+            <div class="health-name">Supabase Logging</div>
+            <div class="health-sub" id="h-supabase-sub">–</div>
+          </div>
+          <span id="h-supabase" class="health-pill health-warn">Checking…</span>
+        </div>
+      </div>
+      <div style="margin-top:0.75rem; font-size:0.75rem; color:#94a3b8;">
+        Updates automatically. If something is red, check I²C wiring/addresses and your `.env`.
+      </div>
+    </div>
 
     <!-- Sampling interval -->
     <div class="card" style="padding:1.5rem;">
@@ -230,6 +271,8 @@ async function saveSettings() {
     body: JSON.stringify(payload),
   });
   showToast();
+  // Status can change immediately (LCD/logging toggles), so refresh health.
+  loadHealth();
 }
 
 function showToast() {
@@ -238,6 +281,44 @@ function showToast() {
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
+function setHealth(el, ok, label) {
+  el.className = 'health-pill ' + (ok ? 'health-ok' : 'health-bad');
+  el.textContent = (ok ? '● OK' : '● FAIL') + (label ? (' · ' + label) : '');
+}
+
+async function loadHealth() {
+  try {
+    const h = await fetch('/health').then(r => r.json());
+
+    const sensorOk = !!(h.hardware && h.hardware.turbidity_libs_available && h.hardware.turbidity_sensor_ready);
+    setHealth(document.getElementById('h-sensor'), sensorOk, sensorOk ? 'Hardware' : 'Check I²C');
+    document.getElementById('h-sensor-sub').textContent =
+      `libs=${h.hardware?.turbidity_libs_available ? 'yes' : 'no'} · ready=${h.hardware?.turbidity_sensor_ready ? 'yes' : 'no'} · addr=${h.hardware?.ads1115_addr || '0x48'}`;
+
+    const lcdOk = !!(h.hardware && h.hardware.lcd_libs_available && h.hardware.lcd_ready);
+    setHealth(document.getElementById('h-lcd'), lcdOk, lcdOk ? 'Hardware' : 'Check addr');
+    document.getElementById('h-lcd-sub').textContent =
+      `libs=${h.hardware?.lcd_libs_available ? 'yes' : 'no'} · ready=${h.hardware?.lcd_ready ? 'yes' : 'no'} · addr=${h.hardware?.lcd_i2c_addr || '0x27'}`;
+
+    const sbEnabled = !!(h.supabase && h.supabase.enabled);
+    const sbOk = !!(h.supabase && h.supabase.enabled && h.supabase.ok);
+    const sbLabel = sbEnabled ? (sbOk ? 'Connected' : (h.supabase?.error || 'Error')) : 'Not set';
+    // treat "not set" as FAIL so it’s obvious why logs don’t appear
+    setHealth(document.getElementById('h-supabase'), sbEnabled && sbOk, sbLabel);
+    document.getElementById('h-supabase-sub').textContent =
+      sbEnabled ? 'env=present · rest=reachable' : 'Missing SUPABASE_URL / SUPABASE_KEY';
+  } catch (e) {
+    setHealth(document.getElementById('h-sensor'), false, 'Offline');
+    setHealth(document.getElementById('h-lcd'), false, 'Offline');
+    setHealth(document.getElementById('h-supabase'), false, 'Offline');
+    document.getElementById('h-sensor-sub').textContent = 'Unable to fetch diagnostics';
+    document.getElementById('h-lcd-sub').textContent = 'Unable to fetch diagnostics';
+    document.getElementById('h-supabase-sub').textContent = 'Unable to fetch diagnostics';
+  }
+}
+
 loadSettings();
+loadHealth();
+setInterval(loadHealth, 5000);
 </script>
 {% endblock %}
